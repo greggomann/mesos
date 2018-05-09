@@ -20,6 +20,7 @@
 #include <process/metrics/pull_gauge.hpp>
 #include <process/metrics/metrics.hpp>
 
+#include <stout/duration.hpp>
 #include <stout/foreach.hpp>
 
 #include "master/master.hpp"
@@ -565,7 +566,23 @@ FrameworkMetrics::FrameworkMetrics(
     offers_rescinded(
         getFrameworkMetricPrefix(frameworkInfo) + "offers/rescinded"),
     operations(
-        getFrameworkMetricPrefix(frameworkInfo) + "operations")
+        getFrameworkMetricPrefix(frameworkInfo) + "operations"),
+    refuse_seconds_infinite(
+        getFrameworkMetricPrefix(frameworkInfo) +
+          "allocation/offer_filters/refuse_seconds/infinite"),
+    refuseSecondsBuckets(
+        {{Seconds(5),
+          Counter(getFrameworkMetricPrefix(frameworkInfo) +
+              "allocation/offer_filters/refuse_seconds/5secs")},
+         {Minutes(1),
+          Counter(getFrameworkMetricPrefix(frameworkInfo) +
+              "allocation/offer_filters/refuse_seconds/1mins")},
+         {Hours(1),
+          Counter(getFrameworkMetricPrefix(frameworkInfo) +
+              "allocation/offer_filters/refuse_seconds/1hours")},
+         {Days(1),
+          Counter(getFrameworkMetricPrefix(frameworkInfo) +
+              "allocation/offer_filters/refuse_seconds/1days")}})
 {
   process::metrics::add(subscribed);
   process::metrics::add(calls);
@@ -576,6 +593,12 @@ FrameworkMetrics::FrameworkMetrics(
   process::metrics::add(offers_accepted);
   process::metrics::add(offers_declined);
   process::metrics::add(offers_rescinded);
+
+  process::metrics::add(refuse_seconds_infinite);
+
+  foreachvalue (const Counter& counter, refuseSecondsBuckets) {
+    process::metrics::add(counter);
+  }
 }
 
 
@@ -612,6 +635,11 @@ FrameworkMetrics::~FrameworkMetrics()
 
   process::metrics::remove(operations);
   foreachvalue (const Counter& counter, operation_types) {
+    process::metrics::remove(counter);
+  }
+
+  process::metrics::remove(refuse_seconds_infinite);
+  foreachvalue (const Counter& counter, refuseSecondsBuckets) {
     process::metrics::remove(counter);
   }
 }
@@ -725,6 +753,21 @@ void FrameworkMetrics::incrementOperation(const Offer::Operation& operation)
   Counter counter = operation_types.get(operation.type()).get();
   counter++;
   operations++;
+}
+
+
+void FrameworkMetrics::incrementOfferFilterBuckets(const Duration _duration)
+{
+  refuse_seconds_infinite++;
+
+  foreachpair (
+      const Duration& duration,
+      Counter& counter,
+      refuseSecondsBuckets) {
+    if (_duration <= duration) {
+      counter++;
+    }
+  }
 }
 
 
