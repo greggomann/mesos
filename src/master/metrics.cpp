@@ -549,6 +549,33 @@ void Metrics::incrementTasksStates(
 }
 
 
+void Metrics::incrementTerminalTaskState(const TaskState& state)
+{
+  switch (state) {
+    case TASK_FINISHED:         ++tasks_finished;         break;
+    case TASK_FAILED:           ++tasks_failed;           break;
+    case TASK_KILLED:           ++tasks_killed;           break;
+    case TASK_LOST:             ++tasks_lost;             break;
+    case TASK_ERROR:            ++tasks_error;            break;
+    case TASK_DROPPED:          ++tasks_dropped;          break;
+    case TASK_GONE:             ++tasks_gone;             break;
+    case TASK_GONE_BY_OPERATOR: ++tasks_gone_by_operator; break;
+
+    // The following are non-terminal and use gauge based metrics.
+    case TASK_STARTING:    break;
+    case TASK_STAGING:     break;
+    case TASK_RUNNING:     break;
+    case TASK_KILLING:     break;
+    case TASK_UNREACHABLE: break;
+
+    // Should not happen.
+    case TASK_UNKNOWN:
+      LOG(FATAL) << "Unexpected TASK_UNKNOWN for in-memory task";
+      break;
+  }
+}
+
+
 FrameworkMetrics::FrameworkMetrics(
     const Master& master,
     const FrameworkInfo& _frameworkInfo)

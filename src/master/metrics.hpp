@@ -214,6 +214,8 @@ struct Metrics
       const TaskState& state,
       const TaskStatus::Source& source,
       const TaskStatus::Reason& reason);
+
+  void incrementTerminalTaskState(const TaskState& state);
 };
 
 
