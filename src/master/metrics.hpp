@@ -210,7 +210,7 @@ struct Metrics
 
   void incrementInvalidSchedulerCalls(const scheduler::Call& call);
 
-  void incrementTasksStates(
+  void incrementTaskReason(
       const TaskState& state,
       const TaskStatus::Source& source,
       const TaskStatus::Reason& reason);

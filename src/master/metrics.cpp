@@ -520,7 +520,7 @@ void Metrics::incrementInvalidSchedulerCalls(const scheduler::Call& call) {
 }
 
 
-void Metrics::incrementTasksStates(
+void Metrics::incrementTaskReason(
     const TaskState& state,
     const TaskStatus::Source& source,
     const TaskStatus::Reason& reason)
