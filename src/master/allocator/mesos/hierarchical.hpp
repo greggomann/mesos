@@ -323,6 +323,8 @@ protected:
     hashmap<SlaveID, hashset<InverseOfferFilter*>> inverseOfferFilters;
 
     bool active;
+
+    process::Owned<FrameworkMetrics> frameworkMetrics;
   };
 
   double _event_queue_dispatches()
