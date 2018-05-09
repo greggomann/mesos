@@ -16,6 +16,8 @@
 
 #include <string>
 
+#include <mesos/scheduler/scheduler.hpp>
+
 #include <process/metrics/counter.hpp>
 #include <process/metrics/pull_gauge.hpp>
 #include <process/metrics/push_gauge.hpp>
