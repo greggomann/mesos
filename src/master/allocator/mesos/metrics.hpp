@@ -102,6 +102,10 @@ struct FrameworkMetrics
       const std::string& role,
       const std::pair<size_t, size_t>& minMax);
 
+  void reviveRole(const std::string& role);
+  void suppressRole(const std::string& role);
+  void removeSuppressedRole(const std::string& role);
+
   const FrameworkInfo frameworkInfo;
 
   process::metrics::Counter resources_filtered;
@@ -120,6 +124,8 @@ struct FrameworkMetrics
   };
 
   hashmap<std::string, DrfPositions> roleDrfPositions;
+
+  hashmap<std::string, process::metrics::PushGauge> suppressed;
 };
 
 } // namespace internal {

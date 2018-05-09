@@ -21,9 +21,12 @@
 #include <mesos/quota/quota.hpp>
 
 #include <process/metrics/pull_gauge.hpp>
+#include <process/metrics/push_gauge.hpp>
 #include <process/metrics/metrics.hpp>
 
 #include <stout/hashmap.hpp>
+
+#include "common/protobuf_utils.hpp"
 
 #include "master/allocator/mesos/hierarchical.hpp"
 
@@ -32,6 +35,7 @@
 using std::string;
 
 using process::metrics::PullGauge;
+using process::metrics::PushGauge;
 
 namespace mesos {
 namespace internal {
@@ -231,6 +235,13 @@ FrameworkMetrics::FrameworkMetrics(const FrameworkInfo& _frameworkInfo)
   process::metrics::add(resources_filtered_region_aware);
   process::metrics::add(resources_filtered_reservation_refinement);
   process::metrics::add(resources_filtered_revocable);
+
+  // Add all roles non-suppressed by default.
+  foreach (
+      const string& role,
+      protobuf::framework::getRoles(frameworkInfo)) {
+    reviveRole(role);
+  }
 }
 
 
@@ -246,6 +257,10 @@ FrameworkMetrics::~FrameworkMetrics()
   foreachvalue (const DrfPositions& positions, roleDrfPositions) {
     process::metrics::remove(positions.min);
     process::metrics::remove(positions.max);
+  }
+
+  foreachvalue (const PushGauge& gauge, suppressed) {
+    process::metrics::remove(gauge);
   }
 }
 
@@ -272,6 +287,44 @@ void FrameworkMetrics::setDrfPositions(
 
   roleDrfPositions.at(role).min = minMax.first;
   roleDrfPositions.at(role).max = minMax.second;
+}
+
+
+void FrameworkMetrics::reviveRole(const string& role)
+{
+  if (!suppressed.contains(role)) {
+    suppressed.emplace(
+        role,
+        PushGauge(
+            getFrameworkMetricPrefix(frameworkInfo) + "roles/" +
+            normalizeMetricKey(role) + "/suppressed"));
+    process::metrics::add(suppressed.at(role));
+  }
+
+  suppressed.at(role) = 0.;
+}
+
+
+void FrameworkMetrics::suppressRole(const string& role)
+{
+  if (!suppressed.contains(role)) {
+    suppressed.emplace(
+        role,
+        PushGauge(
+            getFrameworkMetricPrefix(frameworkInfo) + "roles/" +
+            normalizeMetricKey(role) + "/suppressed"));
+    process::metrics::add(suppressed.at(role));
+  }
+
+  suppressed.at(role) = 1.;
+}
+
+
+void FrameworkMetrics::removeSuppressedRole(const string& role)
+{
+  CHECK(suppressed.contains(role));
+  process::metrics::remove(suppressed.at(role));
+  suppressed.erase(role);
 }
 
 } // namespace internal {
