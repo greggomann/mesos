@@ -1799,7 +1799,7 @@ void HierarchicalAllocatorProcess::__allocate()
         CHECK(slaves.contains(slaveId));
         CHECK(frameworks.contains(frameworkId));
 
-        const Framework& framework = frameworks.at(frameworkId);
+        Framework& framework = frameworks.at(frameworkId);
         CHECK(framework.active) << frameworkId;
 
         Slave& slave = slaves.at(slaveId);
@@ -1810,12 +1810,18 @@ void HierarchicalAllocatorProcess::__allocate()
         if (filterGpuResources &&
             !framework.capabilities.gpuResources &&
             slave.total.gpus().getOrElse(0) > 0) {
+          framework.frameworkMetrics->resources_filtered++;
+          framework.frameworkMetrics->resources_filtered_gpu++;
+
           continue;
         }
 
         // If this framework is not region-aware, don't offer it
         // resources on agents in remote regions.
         if (!framework.capabilities.regionAware && isRemoteSlave(slave)) {
+          framework.frameworkMetrics->resources_filtered++;
+          framework.frameworkMetrics->resources_filtered_region_aware++;
+
           continue;
         }
 
@@ -1973,9 +1979,21 @@ void HierarchicalAllocatorProcess::__allocate()
         // resources with refined reservations if the framework does not have
         // the capability.
         if (!framework.capabilities.reservationRefinement) {
-          toAllocate = toAllocate.filter([](const Resource& resource) {
-            return !Resources::hasRefinedReservations(resource);
-          });
+          bool resourcesFiltered = false;
+          toAllocate =
+            toAllocate.filter([&resourcesFiltered](const Resource& resource) {
+              if (Resources::hasRefinedReservations(resource)) {
+                resourcesFiltered = true;
+                return false;
+              }
+              return true;
+            });
+
+          if (resourcesFiltered) {
+            framework.frameworkMetrics->resources_filtered++;
+            framework.frameworkMetrics
+              ->resources_filtered_reservation_refinement++;
+          }
         }
 
         // If the framework filters these resources, ignore.
@@ -2045,7 +2063,7 @@ void HierarchicalAllocatorProcess::__allocate()
         CHECK(slaves.contains(slaveId));
         CHECK(frameworks.contains(frameworkId));
 
-        const Framework& framework = frameworks.at(frameworkId);
+        Framework& framework = frameworks.at(frameworkId);
         Slave& slave = slaves.at(slaveId);
 
         // Only offer resources from slaves that have GPUs to
@@ -2054,12 +2072,18 @@ void HierarchicalAllocatorProcess::__allocate()
         if (filterGpuResources &&
             !framework.capabilities.gpuResources &&
             slave.total.gpus().getOrElse(0) > 0) {
+          framework.frameworkMetrics->resources_filtered++;
+          framework.frameworkMetrics->resources_filtered_gpu++;
+
           continue;
         }
 
         // If this framework is not region-aware, don't offer it
         // resources on agents in remote regions.
         if (!framework.capabilities.regionAware && isRemoteSlave(slave)) {
+          framework.frameworkMetrics->resources_filtered++;
+          framework.frameworkMetrics->resources_filtered_region_aware++;
+
           continue;
         }
 
@@ -2105,7 +2129,12 @@ void HierarchicalAllocatorProcess::__allocate()
 
         // Remove revocable resources if the framework has not opted for them.
         if (!framework.capabilities.revocableResources) {
-          toAllocate = toAllocate.nonRevocable();
+          Resources nonRevocableResources = toAllocate.nonRevocable();
+          if (nonRevocableResources != toAllocate) {
+            framework.frameworkMetrics->resources_filtered++;
+            framework.frameworkMetrics->resources_filtered_revocable++;
+          }
+          toAllocate = nonRevocableResources;
         }
 
         // When reservation refinements are present, old frameworks without the
@@ -2118,9 +2147,21 @@ void HierarchicalAllocatorProcess::__allocate()
         // resources with refined reservations if the framework does not have
         // the capability.
         if (!framework.capabilities.reservationRefinement) {
-          toAllocate = toAllocate.filter([](const Resource& resource) {
-            return !Resources::hasRefinedReservations(resource);
-          });
+          bool resourcesFiltered = false;
+          toAllocate =
+            toAllocate.filter([&resourcesFiltered](const Resource& resource) {
+              if (Resources::hasRefinedReservations(resource)) {
+                resourcesFiltered = true;
+                return false;
+              }
+              return true;
+            });
+
+          if (resourcesFiltered) {
+            framework.frameworkMetrics->resources_filtered++;
+            framework.frameworkMetrics
+              ->resources_filtered_reservation_refinement++;
+          }
         }
 
         // If allocating these resources would reduce the headroom
@@ -2382,12 +2423,12 @@ bool HierarchicalAllocatorProcess::isFiltered(
     const FrameworkID& frameworkId,
     const string& role,
     const SlaveID& slaveId,
-    const Resources& resources) const
+    const Resources& resources)
 {
   CHECK(frameworks.contains(frameworkId));
   CHECK(slaves.contains(slaveId));
 
-  const Framework& framework = frameworks.at(frameworkId);
+  Framework& framework = frameworks.at(frameworkId);
   const Slave& slave = slaves.at(slaveId);
 
   // TODO(mpark): Consider moving these filter logic out and into the master,
@@ -2435,6 +2476,9 @@ bool HierarchicalAllocatorProcess::isFiltered(
               << " on agent " << slaveId
               << " for role " << role
               << " of framework " << frameworkId;
+
+      framework.frameworkMetrics->resources_filtered++;
+      framework.frameworkMetrics->resources_filtered_decline++;
 
       return true;
     }
