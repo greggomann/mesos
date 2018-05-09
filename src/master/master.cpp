@@ -10820,6 +10820,8 @@ void Master::updateTask(Task* task, const StatusUpdate& update)
   // set if the task transitioned to a new state.
   bool sendSubscribersUpdate = false;
 
+  Framework* framework = getFramework(task->framework_id());
+
   // If the task has already transitioned to a terminal state,
   // do not update its state. Note that we are being defensive
   // here because this should not happen unless there is a bug
@@ -10830,6 +10832,20 @@ void Master::updateTask(Task* task, const StatusUpdate& update)
   if (!protobuf::isTerminalState(task->state())) {
     if (status.state() != task->state()) {
       sendSubscribersUpdate = true;
+    }
+
+    if (task->state() != latestState.getOrElse(status.state()) &&
+        framework != nullptr) {
+      // When we observe a transition away from a non-terminal state,
+      // decrement the relevant metric.
+      framework->metrics.decrementActiveTaskState(task->state());
+
+      if (!protobuf::isTerminalState(latestState.getOrElse(status.state()))) {
+        // When we observe a transition to an active task state,
+        // increment the relevant metric.
+        framework->metrics.incrementActiveTaskState(
+            latestState.getOrElse(status.state()));
+      }
     }
 
     task->set_state(latestState.getOrElse(status.state()));
@@ -10855,7 +10871,6 @@ void Master::updateTask(Task* task, const StatusUpdate& update)
     // transitioned to `TASK_KILLED` by `removeFramework()`, thus
     // `sendSubscribersUpdate` shouldn't have been set to true.
     // TODO(chhsiao): This may be changed after MESOS-6608 is resolved.
-    Framework* framework = getFramework(task->framework_id());
     CHECK_NOTNULL(framework);
 
     subscribers.send(

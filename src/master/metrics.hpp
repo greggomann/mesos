@@ -234,6 +234,8 @@ struct FrameworkMetrics
       const TaskStatus::Source& source,
       const TaskStatus::Reason& reason);
 
+  void incrementActiveTaskState(const TaskState& state);
+  void decrementActiveTaskState(const TaskState& state);
   void incrementTerminalTaskState(const TaskState& state);
 
   void incrementOperation(const Offer::Operation& operation);
@@ -260,6 +262,8 @@ struct FrameworkMetrics
   typedef hashmap<TaskStatus::Source, Reasons> SourcesReasons;
   hashmap<TaskState, SourcesReasons> terminal_task_reasons;
   hashmap<TaskState, process::metrics::Counter> terminal_task_states;
+
+  hashmap<TaskState, process::metrics::PushGauge> active_task_states;
 
   process::metrics::Counter operations;
   hashmap<Offer::Operation::Type, process::metrics::Counter> operation_types;

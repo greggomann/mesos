@@ -2331,6 +2331,8 @@ struct Framework
       if (!isTrackedUnderRole(role)) {
         trackUnderRole(role);
       }
+
+      metrics.incrementActiveTaskState(task->state());
     }
 
     if (!master->subscribers.subscribed.empty()) {
