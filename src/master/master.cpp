@@ -4566,6 +4566,10 @@ void Master::_accept(
     return;
   }
 
+  foreach (const Offer::Operation& operation, accept.operations()) {
+    framework->metrics.incrementOperation(operation);
+  }
+
   Slave* slave = slaves.registered.get(slaveId);
 
   if (slave == nullptr || !slave->connected) {
