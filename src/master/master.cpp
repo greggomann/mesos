@@ -2379,6 +2379,8 @@ void Master::receive(
     return;
   }
 
+  framework->metrics.incrementCall(call.type());
+
   // This is possible when master --> framework link is broken (i.e., one
   // way network partition) and the framework is not aware of it. There
   // is no way for driver based frameworks to detect this in the absence
@@ -2696,6 +2698,8 @@ void Master::_subscribe(
 
     addFramework(framework, suppressedRoles);
 
+    framework->metrics.incrementCall(scheduler::Call::SUBSCRIBE);
+
     FrameworkRegisteredMessage message;
     message.mutable_framework_id()->MergeFrom(framework->id());
     message.mutable_master_info()->MergeFrom(info_);
@@ -2728,6 +2732,8 @@ void Master::_subscribe(
   }
 
   CHECK_NOTNULL(framework);
+
+  framework->metrics.incrementCall(scheduler::Call::SUBSCRIBE);
 
   if (!framework->recovered()) {
     // The framework has previously been registered with this master;

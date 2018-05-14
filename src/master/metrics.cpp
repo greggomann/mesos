@@ -551,15 +551,40 @@ FrameworkMetrics::FrameworkMetrics(
     const FrameworkInfo& _frameworkInfo)
   : frameworkInfo(_frameworkInfo),
     subscribed(
-        getFrameworkMetricPrefix(frameworkInfo) + "subscribed")
+        getFrameworkMetricPrefix(frameworkInfo) + "subscribed"),
+    calls(
+        getFrameworkMetricPrefix(frameworkInfo) + "calls")
 {
   process::metrics::add(subscribed);
+  process::metrics::add(calls);
 }
 
 
 FrameworkMetrics::~FrameworkMetrics()
 {
   process::metrics::remove(subscribed);
+
+  process::metrics::remove(calls);
+  foreachvalue (const Counter& counter, call_types) {
+    process::metrics::remove(counter);
+  }
+}
+
+
+void FrameworkMetrics::incrementCall(const scheduler::Call::Type& callType)
+{
+  if (!call_types.contains(callType)) {
+    Counter counter = Counter(
+        getFrameworkMetricPrefix(frameworkInfo) + "calls/" +
+        strings::lower(scheduler::Call::Type_Name(callType)));
+
+    call_types.put(callType, counter);
+    process::metrics::add(counter);
+  }
+
+  Counter counter = call_types.get(callType).get();
+  counter++;
+  calls++;
 }
 
 
