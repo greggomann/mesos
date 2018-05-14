@@ -553,10 +553,13 @@ FrameworkMetrics::FrameworkMetrics(
     subscribed(
         getFrameworkMetricPrefix(frameworkInfo) + "subscribed"),
     calls(
-        getFrameworkMetricPrefix(frameworkInfo) + "calls")
+        getFrameworkMetricPrefix(frameworkInfo) + "calls"),
+    events(
+        getFrameworkMetricPrefix(frameworkInfo) + "events")
 {
   process::metrics::add(subscribed);
   process::metrics::add(calls);
+  process::metrics::add(events);
 }
 
 
@@ -566,6 +569,11 @@ FrameworkMetrics::~FrameworkMetrics()
 
   process::metrics::remove(calls);
   foreachvalue (const Counter& counter, call_types) {
+    process::metrics::remove(counter);
+  }
+
+  process::metrics::remove(events);
+  foreachvalue (const Counter& counter, event_types) {
     process::metrics::remove(counter);
   }
 }
@@ -585,6 +593,38 @@ void FrameworkMetrics::incrementCall(const scheduler::Call::Type& callType)
   Counter counter = call_types.get(callType).get();
   counter++;
   calls++;
+}
+
+
+void FrameworkMetrics::incrementEvent(const scheduler::Event& event)
+{
+  if (event.type() == scheduler::Event::UPDATE) {
+    const TaskState& taskState = event.update().status().state();
+    if (!event_updates.contains(taskState)) {
+      Counter counter = Counter(
+          getFrameworkMetricPrefix(frameworkInfo) + "events/update/" +
+          strings::lower(TaskState_Name(taskState)));
+
+      event_updates.put(taskState, counter);
+      process::metrics::add(counter);
+    }
+
+    Counter counter = event_updates.get(taskState).get();
+    counter++;
+  }
+
+  if (!event_types.contains(event.type())) {
+    Counter counter = Counter(
+        getFrameworkMetricPrefix(frameworkInfo) + "events/" +
+        strings::lower(scheduler::Event::Type_Name(event.type())));
+
+    event_types.put(event.type(), counter);
+    process::metrics::add(counter);
+  }
+
+  Counter counter = event_types.get(event.type()).get();
+  counter++;
+  events++;
 }
 
 

@@ -2377,6 +2377,9 @@ struct Framework
                    << " framework " << *this;
     }
 
+    // TODO(gilbert): Add helper to translate message to v0 event.
+    metrics.incrementEvent(devolve(evolve(message)));
+
     if (http.isSome()) {
       if (!http->send(message)) {
         LOG(WARNING) << "Unable to send event to framework " << *this << ":"
