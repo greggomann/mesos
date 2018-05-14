@@ -215,6 +215,18 @@ struct Metrics
 };
 
 
+struct FrameworkMetrics
+{
+  explicit FrameworkMetrics(
+      const Master& master,
+      const FrameworkInfo& _frameworkInfo);
+
+  ~FrameworkMetrics();
+
+  const FrameworkInfo frameworkInfo;
+};
+
+
 std::string normalizeMetricKey(const std::string& key);
 
 
