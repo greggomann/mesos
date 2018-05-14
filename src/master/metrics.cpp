@@ -546,6 +546,24 @@ void Metrics::incrementTasksStates(
 }
 
 
+string normalizeMetricKey(const string& key)
+{
+  string name = strings::lower(key);
+  name = strings::trim(name);
+  name = strings::replace(name, " ", "__");
+  name = strings::replace(name, ".", "__");
+  name = strings::replace(name, "/", "__");
+
+  return name;
+}
+
+
+string getFrameworkMetricPrefix(const FrameworkInfo& frameworkInfo)
+{
+  return "master/frameworks/" + normalizeMetricKey(frameworkInfo.name()) +
+    "." + stringify(frameworkInfo.id()) + "/";
+}
+
 } // namespace master {
 } // namespace internal {
 } // namespace mesos {
