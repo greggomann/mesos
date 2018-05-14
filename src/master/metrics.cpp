@@ -594,6 +594,18 @@ FrameworkMetrics::~FrameworkMetrics()
   process::metrics::remove(offers_accepted);
   process::metrics::remove(offers_declined);
   process::metrics::remove(offers_rescinded);
+
+  foreachvalue (const auto& sourceReason, terminal_task_reasons) {
+    foreachvalue (const auto& reasonCounter, sourceReason) {
+      foreachvalue (const Counter& counter, reasonCounter) {
+        process::metrics::remove(counter);
+      }
+    }
+  }
+
+  foreachvalue (const Counter& counter, terminal_task_states) {
+    process::metrics::remove(counter);
+  }
 }
 
 
@@ -643,6 +655,51 @@ void FrameworkMetrics::incrementEvent(const scheduler::Event& event)
   Counter counter = event_types.get(event.type()).get();
   counter++;
   events++;
+}
+
+
+void FrameworkMetrics::incrementTerminalTaskReason(
+    const TaskState& state,
+    const TaskStatus::Source& source,
+    const TaskStatus::Reason& reason)
+{
+  if (!terminal_task_reasons.contains(state)) {
+    terminal_task_reasons[state] = SourcesReasons();
+  }
+
+  if (!terminal_task_reasons[state].contains(source)) {
+    terminal_task_reasons[state][source] = Reasons();
+  }
+
+  if (!terminal_task_reasons[state][source].contains(reason)) {
+    Counter counter = Counter(
+        getFrameworkMetricPrefix(frameworkInfo) + "tasks/" +
+        strings::lower(TaskState_Name(state)) + "/" +
+        strings::lower(TaskStatus::Source_Name(source)) + "/" +
+        strings::lower(TaskStatus::Reason_Name(reason)));
+
+    terminal_task_reasons[state][source].put(reason, counter);
+    process::metrics::add(counter);
+  }
+
+  Counter counter = terminal_task_reasons[state][source].get(reason).get();
+  counter++;
+}
+
+
+void FrameworkMetrics::incrementTerminalTaskState(const TaskState& state)
+{
+  if (!terminal_task_states.contains(state)) {
+    Counter counter = Counter(
+        getFrameworkMetricPrefix(frameworkInfo) + "tasks/" +
+        strings::lower(TaskState_Name(state)));
+
+    terminal_task_states.put(state, counter);
+    process::metrics::add(counter);
+  }
+
+  Counter counter = terminal_task_states.get(state).get();
+  counter++;
 }
 
 

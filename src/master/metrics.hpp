@@ -228,6 +228,13 @@ struct FrameworkMetrics
 
   void incrementEvent(const scheduler::Event& event);
 
+  void incrementTerminalTaskReason(
+      const TaskState& state,
+      const TaskStatus::Source& source,
+      const TaskStatus::Reason& reason);
+
+  void incrementTerminalTaskState(const TaskState& state);
+
   const FrameworkInfo frameworkInfo;
 
   process::metrics::PushGauge subscribed;
@@ -243,6 +250,11 @@ struct FrameworkMetrics
   process::metrics::Counter offers_accepted;
   process::metrics::Counter offers_declined;
   process::metrics::Counter offers_rescinded;
+
+  typedef hashmap<TaskStatus::Reason, process::metrics::Counter> Reasons;
+  typedef hashmap<TaskStatus::Source, Reasons> SourcesReasons;
+  hashmap<TaskState, SourcesReasons> terminal_task_reasons;
+  hashmap<TaskState, process::metrics::Counter> terminal_task_states;
 };
 
 
