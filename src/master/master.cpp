@@ -10912,6 +10912,17 @@ void Master::updateTask(Task* task, const StatusUpdate& update)
           status.source(),
           status.reason());
     }
+
+    if (protobuf::isTerminalState(status.state()) && framework != nullptr) {
+      if (status.has_source() && status.has_reason()) {
+        framework->metrics.incrementTerminalTaskReason(
+            status.state(),
+            status.source(),
+            status.reason());
+      }
+
+      framework->metrics.incrementTerminalTaskState(status.state());
+    }
   }
 }
 
@@ -12097,7 +12108,26 @@ void Slave::addTask(Task* task)
     << "Task '" << taskId << "' of framework " << frameworkId
     << " added in TASK_UNREACHABLE state";
 
-  if (!protobuf::isTerminalState(task->state())) {
+  if (protobuf::isTerminalState(task->state())) {
+    Framework* framework = master->getFramework(frameworkId);
+    if (framework != nullptr && task->statuses().size() > 0) {
+      const TaskStatus& status = task->statuses(task->statuses().size() - 1);
+      if (status.state() != task->state()) {
+        LOG(WARNING) << "The task state " << task->state()
+                     << " is different from the latest task status state "
+                     << status.state() << " for task " << taskId;
+      } else {
+        if (status.has_source() && status.has_reason()) {
+          framework->metrics.incrementTerminalTaskReason(
+              status.state(),
+              status.source(),
+              status.reason());
+        }
+
+        framework->metrics.incrementTerminalTaskState(task->state());
+      }
+    }
+  } else {
     usedResources[frameworkId] += resources;
   }
 
