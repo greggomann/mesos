@@ -214,6 +214,12 @@ struct Metrics
       const TaskStatus::Reason& reason);
 };
 
+
+std::string normalizeMetricKey(const std::string& key);
+
+
+std::string getFrameworkMetricPrefix(const FrameworkInfo& frameworkInfo);
+
 } // namespace master {
 } // namespace internal {
 } // namespace mesos {
