@@ -546,6 +546,13 @@ void Metrics::incrementTasksStates(
 }
 
 
+FrameworkMetrics::FrameworkMetrics(const FrameworkInfo& _frameworkInfo)
+  : frameworkInfo(_frameworkInfo) {}
+
+
+FrameworkMetrics::~FrameworkMetrics() {}
+
+
 string normalizeMetricKey(const string& key)
 {
   string name = strings::lower(key);
