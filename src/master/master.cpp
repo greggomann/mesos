@@ -4015,6 +4015,8 @@ void Master::accept(
           slaveId = offer->slave_id();
           allocationInfo = offer->allocation_info();
           offeredResources += offer->resources();
+
+          framework->metrics.offers_accepted++;
         }
 
         removeOffer(offer);
@@ -5836,6 +5838,8 @@ void Master::decline(
           decline.filters());
 
       removeOffer(offer);
+
+      framework->metrics.offers_declined++;
       continue;
     }
 
@@ -9431,6 +9435,7 @@ void Master::offer(
   LOG(INFO) << "Sending " << message.offers().size()
             << " offers to framework " << *framework;
 
+  framework->metrics.offers_sent += message.offers().size();
   framework->send(message);
 }
 
@@ -11366,6 +11371,7 @@ void Master::removeOffer(Offer* offer, bool rescind)
   if (rescind) {
     RescindResourceOfferMessage message;
     message.mutable_offer_id()->MergeFrom(offer->id());
+    framework->metrics.offers_rescinded++;
     framework->send(message);
   }
 
