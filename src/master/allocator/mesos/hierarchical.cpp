@@ -1764,6 +1764,31 @@ void HierarchicalAllocatorProcess::__allocate()
   // allocated in the current cycle.
   hashmap<SlaveID, Resources> offeredSharedResources;
 
+  // Track the max and min DRF position of each framework in each role.
+  typedef hashmap<string, std::pair<size_t, size_t>> FrameworkPositions;
+
+  hashmap<string, FrameworkPositions> drfPositions;
+
+  auto setDrfPositions = [&drfPositions](
+      const string& role,
+      const string& frameworkId,
+      const size_t position) {
+    auto frameworks = drfPositions[role];
+    auto framework = frameworks.find(frameworkId);
+
+    if (framework == frameworks.end()) {
+      frameworks.emplace(frameworkId, std::make_pair(position, position));
+    } else {
+      framework->second.first = std::min(framework->second.first, position);
+      framework->second.second = std::max(framework->second.second, position);
+    }
+  };
+
+  // Used to set DRF position metrics for each (role, framework) tuple. This is
+  // reset at the beginning of each agent's allocation cycle so that we track
+  // the min and max values observed while allocating for all agents.
+  size_t currentPosition;
+
   // Quota guarantee comes first and bursting above the quota guarantee
   // up to the quota limit comes second. Here we process only those
   // roles for that have a non-empty quota guarantee.
@@ -1778,6 +1803,8 @@ void HierarchicalAllocatorProcess::__allocate()
   // roles with unsatisfied guarantee can have more choices and higher
   // probability in getting their guarantee satisfied.
   foreach (const SlaveID& slaveId, slaveIds) {
+    currentPosition = 1;
+
     foreach (const string& role, quotaRoleSorter->sort()) {
       CHECK(quotas.contains(role));
 
@@ -1794,7 +1821,13 @@ void HierarchicalAllocatorProcess::__allocate()
       CHECK(frameworkSorters.contains(role));
       const Owned<Sorter>& frameworkSorter = frameworkSorters.at(role);
 
-      foreach (const string& frameworkId_, frameworkSorter->sort()) {
+      const vector<string> sortedFrameworks = frameworkSorter->sort();
+
+      foreach (const string& frameworkId, sortedFrameworks) {
+        setDrfPositions(role, frameworkId, currentPosition++);
+      }
+
+      foreach (const string& frameworkId_, sortedFrameworks) {
         FrameworkID frameworkId;
         frameworkId.set_value(frameworkId_);
 
@@ -2047,6 +2080,8 @@ void HierarchicalAllocatorProcess::__allocate()
   // quota guarantees).
 
   foreach (const SlaveID& slaveId, slaveIds) {
+    currentPosition = 1;
+
     foreach (const string& role, roleSorter->sort()) {
       // In the second allocation stage, we only allocate
       // for non-quota roles.
@@ -2058,7 +2093,13 @@ void HierarchicalAllocatorProcess::__allocate()
       CHECK(frameworkSorters.contains(role));
       const Owned<Sorter>& frameworkSorter = frameworkSorters.at(role);
 
-      foreach (const string& frameworkId_, frameworkSorter->sort()) {
+      const vector<string> sortedFrameworks = frameworkSorter->sort();
+
+      foreach (const string& frameworkId, sortedFrameworks) {
+        setDrfPositions(role, frameworkId, currentPosition++);
+      }
+
+      foreach (const string& frameworkId_, sortedFrameworks) {
         FrameworkID frameworkId;
         frameworkId.set_value(frameworkId_);
 
@@ -2211,6 +2252,26 @@ void HierarchicalAllocatorProcess::__allocate()
 
         trackAllocatedResources(slaveId, frameworkId, toAllocate);
       }
+    }
+  }
+
+  // Update the per-framework DRF position metrics.
+  typedef std::pair<size_t, size_t> MinMax;
+  foreachpair (
+      const string& role,
+      const FrameworkPositions& frameworkMap,
+      drfPositions) {
+    foreachpair(
+        const string& frameworkId_,
+        const MinMax& minMax,
+        frameworkMap) {
+      FrameworkID frameworkId;
+      frameworkId.set_value(frameworkId_);
+
+      CHECK(frameworks.contains(frameworkId));
+
+      frameworks.at(frameworkId).frameworkMetrics->setDrfPositions(
+          role, minMax);
     }
   }
 
