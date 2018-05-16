@@ -561,11 +561,14 @@ FrameworkMetrics::FrameworkMetrics(const FrameworkInfo& _frameworkInfo)
     offers_declined(
         getFrameworkMetricPrefix(frameworkInfo) + "offers/declined"),
     offers_rescinded(
-        getFrameworkMetricPrefix(frameworkInfo) + "offers/rescinded")
+        getFrameworkMetricPrefix(frameworkInfo) + "offers/rescinded"),
+    operations(
+        getFrameworkMetricPrefix(frameworkInfo) + "operations")
 {
   process::metrics::add(subscribed);
   process::metrics::add(calls);
   process::metrics::add(events);
+  process::metrics::add(operations);
 
   process::metrics::add(offers_sent);
   process::metrics::add(offers_accepted);
@@ -602,6 +605,11 @@ FrameworkMetrics::~FrameworkMetrics()
   }
 
   foreachvalue (const Counter& counter, terminal_task_states) {
+    process::metrics::remove(counter);
+  }
+
+  process::metrics::remove(operations);
+  foreachvalue (const Counter& counter, operation_types) {
     process::metrics::remove(counter);
   }
 }
@@ -698,6 +706,23 @@ void FrameworkMetrics::incrementTerminalTaskState(const TaskState& state)
 
   Counter counter = terminal_task_states.get(state).get();
   counter++;
+}
+
+
+void FrameworkMetrics::incrementOperation(const Offer::Operation& operation)
+{
+  if (!operation_types.contains(operation.type())) {
+    Counter counter = Counter(
+        getFrameworkMetricPrefix(frameworkInfo) + "operations/" +
+        strings::lower(Offer::Operation::Type_Name(operation.type())));
+
+    operation_types.put(operation.type(), counter);
+    process::metrics::add(counter);
+  }
+
+  Counter counter = operation_types.get(operation.type()).get();
+  counter++;
+  operations++;
 }
 
 
