@@ -27,6 +27,8 @@
 
 #include "master/allocator/mesos/hierarchical.hpp"
 
+#include "master/metrics.hpp"
+
 using std::string;
 
 using process::metrics::PullGauge;
@@ -209,10 +211,44 @@ void Metrics::removeRole(const string& role)
 
 
 FrameworkMetrics::FrameworkMetrics(const FrameworkInfo& _frameworkInfo)
-  : frameworkInfo(_frameworkInfo) {}
+  : frameworkInfo(_frameworkInfo),
+    resources_filtered(
+        getFrameworkMetricPrefix(frameworkInfo) +
+          "allocation/resources_filtered"),
+    resources_filtered_decline(
+        getFrameworkMetricPrefix(frameworkInfo) +
+          "allocation/resources_filtered/decline"),
+    resources_filtered_gpu(
+        getFrameworkMetricPrefix(frameworkInfo) +
+          "allocation/resources_filtered/gpu_resources"),
+    resources_filtered_region_aware(
+        getFrameworkMetricPrefix(frameworkInfo) +
+          "allocation/resources_filtered/region_aware"),
+    resources_filtered_reservation_refinement(
+        getFrameworkMetricPrefix(frameworkInfo) +
+          "allocation/resources_filtered/reservation_refinement"),
+    resources_filtered_revocable(
+        getFrameworkMetricPrefix(frameworkInfo) +
+          "allocation/resources_filtered/revocable_resources")
+{
+  process::metrics::add(resources_filtered);
+  process::metrics::add(resources_filtered_decline);
+  process::metrics::add(resources_filtered_gpu);
+  process::metrics::add(resources_filtered_region_aware);
+  process::metrics::add(resources_filtered_reservation_refinement);
+  process::metrics::add(resources_filtered_revocable);
+}
 
 
-FrameworkMetrics::~FrameworkMetrics() {}
+FrameworkMetrics::~FrameworkMetrics()
+{
+  process::metrics::remove(resources_filtered);
+  process::metrics::remove(resources_filtered_decline);
+  process::metrics::remove(resources_filtered_gpu);
+  process::metrics::remove(resources_filtered_region_aware);
+  process::metrics::remove(resources_filtered_reservation_refinement);
+  process::metrics::remove(resources_filtered_revocable);
+}
 
 } // namespace internal {
 } // namespace allocator {
