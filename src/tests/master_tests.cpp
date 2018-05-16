@@ -749,7 +749,9 @@ TEST_F(MasterTest, StatusUpdateAck)
   MesosSchedulerDriver driver(
       &sched, DEFAULT_FRAMEWORK_INFO, master.get()->pid, DEFAULT_CREDENTIAL);
 
-  EXPECT_CALL(sched, registered(&driver, _, _));
+  FrameworkID frameworkId;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(SaveArg<1>(&frameworkId));
 
   Future<vector<Offer>> offers;
   EXPECT_CALL(sched, resourceOffers(&driver, _))
@@ -790,6 +792,24 @@ TEST_F(MasterTest, StatusUpdateAck)
 
   // Ensure the slave gets a status update ACK.
   AWAIT_READY(acknowledgement);
+
+  JSON::Object metrics = Metrics();
+
+  string prefix = "master/frameworks/" +
+                  master::normalizeMetricKey(DEFAULT_FRAMEWORK_INFO.name()) +
+                  "." + stringify(frameworkId) + "/";
+
+  EXPECT_EQ(2, metrics.values[prefix + "calls"]);
+  EXPECT_EQ(1, metrics.values[prefix + "calls/accept"]);
+  EXPECT_EQ(1, metrics.values[prefix + "calls/acknowledge"]);
+
+  EXPECT_EQ(1, metrics.values[prefix + "offers/accepted"]);
+
+  EXPECT_EQ(1, metrics.values[prefix + "operations"]);
+  EXPECT_EQ(1, metrics.values[prefix + "operations/launch"]);
+
+  EXPECT_EQ(1, metrics.values[prefix + "events/update"]);
+  EXPECT_EQ(1, metrics.values[prefix + "events/update/task_running"]);
 
   EXPECT_CALL(exec, shutdown(_))
     .Times(AtMost(1));
@@ -4351,9 +4371,9 @@ TEST_F(MasterTest, OfferTimeout)
   MesosSchedulerDriver driver(
       &sched, DEFAULT_FRAMEWORK_INFO, master.get()->pid, DEFAULT_CREDENTIAL);
 
-  Future<Nothing> registered;
+  FrameworkID frameworkId;
   EXPECT_CALL(sched, registered(&driver, _, _))
-    .WillOnce(FutureSatisfy(&registered));
+    .WillOnce(SaveArg<1>(&frameworkId));
 
   Future<vector<Offer>> offers1;
   Future<vector<Offer>> offers2;
@@ -4371,7 +4391,6 @@ TEST_F(MasterTest, OfferTimeout)
 
   driver.start();
 
-  AWAIT_READY(registered);
   AWAIT_READY(offers1);
   ASSERT_EQ(1u, offers1->size());
 
@@ -4396,6 +4415,16 @@ TEST_F(MasterTest, OfferTimeout)
   ASSERT_EQ(1u, offers2->size());
 
   EXPECT_EQ(offers1.get()[0].resources(), offers2.get()[0].resources());
+
+  JSON::Object metrics = Metrics();
+
+  string prefix = "master/frameworks/" +
+                  master::normalizeMetricKey(DEFAULT_FRAMEWORK_INFO.name()) +
+                  "." + stringify(frameworkId) + "/";
+
+  EXPECT_EQ(0, metrics.values[prefix + "offers/accepted"]);
+  EXPECT_EQ(2, metrics.values[prefix + "offers/sent"]);
+  EXPECT_EQ(1, metrics.values[prefix + "offers/rescinded"]);
 
   driver.stop();
   driver.join();
@@ -9020,6 +9049,89 @@ TEST_F(MasterTest, DropOperationWithIDAffectingDefaultResources)
 }
 
 
+TEST_F(MasterTest, FilterMetrics)
+{
+  Clock::pause();
+
+  mesos::internal::master::Flags masterFlags = CreateMasterFlags();
+  Try<Owned<cluster::Master>> master = StartMaster(masterFlags);
+  ASSERT_SOME(master);
+
+  Owned<MasterDetector> detector = master.get()->createDetector();
+  mesos::internal::slave::Flags slaveFlags = CreateSlaveFlags();
+  Try<Owned<cluster::Slave>> slave = StartSlave(detector.get(), slaveFlags);
+  ASSERT_SOME(slave);
+
+  // Advance the clock to trigger agent registration.
+  Clock::advance(slaveFlags.registration_backoff_factor);
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+      &sched, DEFAULT_FRAMEWORK_INFO, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  FrameworkID frameworkId;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(SaveArg<1>(&frameworkId));
+
+  Future<vector<Offer>> offers;
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillOnce(FutureArg<1>(&offers));
+
+  driver.start();
+
+  AWAIT_READY(offers);
+  ASSERT_FALSE(offers->empty());
+
+  Filters declineFilters;
+
+  declineFilters.set_refuse_seconds(Seconds(1).secs());
+  driver.declineOffer(offers->front().id(), declineFilters);
+
+  vector<Duration> declineDurations{Minutes(1), Hours(1), Days(1), Days(2)};
+  foreach (const Duration& declineDuration, declineDurations) {
+    offers = Future<vector<Offer>>();
+
+    EXPECT_CALL(sched, resourceOffers(&driver, _))
+      .WillOnce(FutureArg<1>(&offers));
+
+    driver.reviveOffers();
+
+    AWAIT_READY(offers);
+    ASSERT_FALSE(offers->empty());
+
+    declineFilters.set_refuse_seconds(declineDuration.secs());
+    driver.declineOffer(offers->front().id(), declineFilters);
+  }
+
+  JSON::Object metrics = Metrics();
+
+  string prefix = "master/frameworks/" +
+                  master::normalizeMetricKey(DEFAULT_FRAMEWORK_INFO.name()) +
+                  "." + stringify(frameworkId) + "/";
+
+  EXPECT_EQ(5, metrics.values[prefix + "offers/sent"]);
+  EXPECT_EQ(5, metrics.values[prefix + "offers/declined"]);
+
+  EXPECT_EQ(9, metrics.values[prefix + "calls"]);
+  EXPECT_EQ(5, metrics.values[prefix + "calls/decline"]);
+  EXPECT_EQ(4, metrics.values[prefix + "calls/revive"]);
+
+  string allocationPrefix = "master/frameworks/" +
+                  master::normalizeMetricKey(DEFAULT_FRAMEWORK_INFO.name()) +
+                  "." + stringify(frameworkId) +
+                  "/allocation/offer_filters/refuse_seconds/";
+
+  EXPECT_EQ(1, metrics.values[allocationPrefix + "5secs"]);
+  EXPECT_EQ(2, metrics.values[allocationPrefix + "1mins"]);
+  EXPECT_EQ(3, metrics.values[allocationPrefix + "1hours"]);
+  EXPECT_EQ(4, metrics.values[allocationPrefix + "1days"]);
+  EXPECT_EQ(5, metrics.values[allocationPrefix + "infinite"]);
+
+  driver.stop();
+  driver.join();
+}
+
+
 class MasterTestPrePostReservationRefinement
   : public MasterTest,
     public WithParamInterface<bool> {
@@ -9373,7 +9485,9 @@ TEST_P(MasterTestPrePostReservationRefinement,
   // We use this to capture offers from 'resourceOffers'.
   Future<vector<Offer>> offers;
 
-  EXPECT_CALL(sched, registered(&driver, _, _));
+  FrameworkID frameworkId;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(SaveArg<1>(&frameworkId));
 
   // The expectation for the first offer.
   EXPECT_CALL(sched, resourceOffers(&driver, _))
@@ -9490,6 +9604,23 @@ TEST_P(MasterTestPrePostReservationRefinement,
   EXPECT_TRUE(inboundResources(offer.resources())
                 .contains(allocatedResources(
                     unreservedCpus + unreservedDisk, frameworkInfo.roles(0))));
+
+  JSON::Object metrics = Metrics();
+
+  string prefix = "master/frameworks/" +
+                  master::normalizeMetricKey(DEFAULT_FRAMEWORK_INFO.name()) +
+                  "." + stringify(frameworkId) + "/";
+
+  EXPECT_EQ(4, metrics.values[prefix + "calls"]);
+  EXPECT_EQ(4, metrics.values[prefix + "calls/accept"]);
+
+  EXPECT_EQ(4, metrics.values[prefix + "offers/accepted"]);
+
+  EXPECT_EQ(4, metrics.values[prefix + "operations"]);
+  EXPECT_EQ(1, metrics.values[prefix + "operations/reserve"]);
+  EXPECT_EQ(1, metrics.values[prefix + "operations/create"]);
+  EXPECT_EQ(1, metrics.values[prefix + "operations/destroy"]);
+  EXPECT_EQ(1, metrics.values[prefix + "operations/unreserve"]);
 
   driver.stop();
   driver.join();
