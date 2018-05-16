@@ -10905,28 +10905,7 @@ void Master::updateTask(Task* task, const StatusUpdate& update)
       framework->recoverResources(task);
     }
 
-    switch (status.state()) {
-      case TASK_FINISHED:         ++metrics->tasks_finished;         break;
-      case TASK_FAILED:           ++metrics->tasks_failed;           break;
-      case TASK_KILLED:           ++metrics->tasks_killed;           break;
-      case TASK_LOST:             ++metrics->tasks_lost;             break;
-      case TASK_ERROR:            ++metrics->tasks_error;            break;
-      case TASK_DROPPED:          ++metrics->tasks_dropped;          break;
-      case TASK_GONE:             ++metrics->tasks_gone;             break;
-      case TASK_GONE_BY_OPERATOR: ++metrics->tasks_gone_by_operator; break;
-
-      // The following are non-terminal and use gauge based metrics.
-      case TASK_STARTING:    break;
-      case TASK_STAGING:     break;
-      case TASK_RUNNING:     break;
-      case TASK_KILLING:     break;
-      case TASK_UNREACHABLE: break;
-
-      // Should not happen.
-      case TASK_UNKNOWN:
-        LOG(FATAL) << "Unexpected TASK_UNKNOWN for in-memory task";
-        break;
-    }
+    metrics->incrementTerminalTaskState(status.state());
 
     if (status.has_reason()) {
       metrics->incrementTasksStates(
@@ -12131,6 +12110,8 @@ void Slave::addTask(Task* task)
     << " added in TASK_UNREACHABLE state";
 
   if (protobuf::isTerminalState(task->state())) {
+    master->metrics->incrementTerminalTaskState(task->state());
+
     Framework* framework = master->getFramework(frameworkId);
     if (framework != nullptr && task->statuses().size() > 0) {
       const TaskStatus& status = task->statuses(task->statuses().size() - 1);
