@@ -4084,7 +4084,7 @@ void Master::accept(
           metrics->tasks_lost++;
         }
 
-        metrics->incrementTasksStates(
+        metrics->incrementTaskReason(
             newTaskState,
             TaskStatus::SOURCE_MASTER,
             TaskStatus::REASON_INVALID_OFFERS);
@@ -4146,7 +4146,7 @@ void Master::accept(
 
         metrics->tasks_error++;
 
-        metrics->incrementTasksStates(
+        metrics->incrementTaskReason(
             TASK_ERROR, TaskStatus::SOURCE_MASTER, reason);
 
         forward(update, UPID(), framework);
@@ -4623,7 +4623,7 @@ void Master::_accept(
           metrics->tasks_lost++;
         }
 
-        metrics->incrementTasksStates(
+        metrics->incrementTaskReason(
             newTaskState,
             TaskStatus::SOURCE_MASTER,
             reason);
@@ -5206,7 +5206,7 @@ void Master::_accept(
 
             metrics->tasks_error++;
 
-            metrics->incrementTasksStates(
+            metrics->incrementTaskReason(
                 TASK_ERROR,
                 TaskStatus::SOURCE_MASTER,
                 TaskStatus::REASON_TASK_UNAUTHORIZED);
@@ -5243,7 +5243,7 @@ void Master::_accept(
 
             metrics->tasks_error++;
 
-            metrics->incrementTasksStates(
+            metrics->incrementTaskReason(
                 TASK_ERROR,
                 TaskStatus::SOURCE_MASTER,
                 TaskStatus::REASON_TASK_INVALID);
@@ -5456,7 +5456,7 @@ void Master::_accept(
 
             metrics->tasks_error++;
 
-            metrics->incrementTasksStates(
+            metrics->incrementTaskReason(
                 TASK_ERROR, TaskStatus::SOURCE_MASTER, reason.get());
 
             forward(update, UPID(), framework);
@@ -10908,7 +10908,7 @@ void Master::updateTask(Task* task, const StatusUpdate& update)
     metrics->incrementTerminalTaskState(status.state());
 
     if (status.has_reason()) {
-      metrics->incrementTasksStates(
+      metrics->incrementTaskReason(
           status.state(),
           status.source(),
           status.reason());
