@@ -20,6 +20,7 @@
 #include <sys/time.h>
 #endif // __WINDOWS__
 
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -436,5 +437,23 @@ inline constexpr Duration Duration::min()
 {
   return Nanoseconds(std::numeric_limits<int64_t>::min());
 }
+
+
+namespace std {
+
+template <>
+struct hash<Duration>
+{
+  typedef size_t result_type;
+
+  typedef Duration argument_type;
+
+  result_type operator()(const argument_type& duration) const
+  {
+    return hash<int64_t>{}(duration.ns());
+  }
+};
+
+} // namespace std {
 
 #endif // __STOUT_DURATION_HPP__
