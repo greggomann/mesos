@@ -51,6 +51,7 @@
 
 #include "master/flags.hpp"
 #include "master/master.hpp"
+#include "master/metrics.hpp"
 #include "master/registry_operations.hpp"
 
 #include "master/allocator/mesos/allocator.hpp"
@@ -9126,6 +9127,199 @@ TEST_F(MasterTest, FilterMetrics)
   EXPECT_EQ(3, metrics.values[allocationPrefix + "1hours"]);
   EXPECT_EQ(4, metrics.values[allocationPrefix + "1days"]);
   EXPECT_EQ(5, metrics.values[allocationPrefix + "infinite"]);
+
+  driver.stop();
+  driver.join();
+}
+
+
+// Verifies that both active and terminal per-framework task state metrics
+// report correct values, even after agent reregistration.
+TEST_F(MasterTest, TaskStateMetrics)
+{
+  Clock::pause();
+
+  mesos::internal::master::Flags masterFlags = CreateMasterFlags();
+  Try<Owned<cluster::Master>> master = StartMaster(masterFlags);
+  ASSERT_SOME(master);
+
+  Owned<MasterDetector> detector = master.get()->createDetector();
+
+  mesos::internal::slave::Flags slaveFlags = CreateSlaveFlags();
+
+  Fetcher fetcher(slaveFlags);
+
+  Try<MesosContainerizer*> _containerizer =
+    MesosContainerizer::create(slaveFlags, true, &fetcher);
+  ASSERT_SOME(_containerizer);
+  Owned<slave::Containerizer> containerizer(_containerizer.get());
+
+  Try<Owned<cluster::Slave>> slave =
+    StartSlave(detector.get(), containerizer.get(), slaveFlags);
+  ASSERT_SOME(slave);
+
+  // Advance the clock to trigger agent registration.
+  Clock::advance(slaveFlags.registration_backoff_factor);
+
+  FrameworkInfo frameworkInfo = DEFAULT_FRAMEWORK_INFO;
+  frameworkInfo.set_checkpoint(true);
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+      &sched, frameworkInfo, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  Future<FrameworkID> frameworkId;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(SaveArg<1>(&frameworkId));
+
+  Future<vector<Offer>> offers1;
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillOnce(FutureArg<1>(&offers1));
+
+  driver.start();
+
+  AWAIT_READY(frameworkId);
+  frameworkInfo.mutable_id()->CopyFrom(frameworkId.get());
+
+  AWAIT_READY(offers1);
+  ASSERT_FALSE(offers1->empty());
+
+  const Offer& offer1 = offers1->front();
+
+  // The first task is long-running.
+  TaskInfo task1 = createTask(
+      offer1.slave_id(),
+      Resources::parse("cpus:0.1;mem:64").get(),
+      SLEEP_COMMAND(100));
+
+  Filters filters;
+  filters.set_refuse_seconds(0);
+
+  Future<TaskStatus> startingStatus1;
+  Future<TaskStatus> runningStatus1;
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(FutureArg<1>(&startingStatus1))
+    .WillOnce(FutureArg<1>(&runningStatus1));
+
+  driver.launchTasks(offer1.id(), {task1}, filters);
+
+  AWAIT_READY(startingStatus1);
+  EXPECT_EQ(TASK_STARTING, startingStatus1->state());
+
+  AWAIT_READY(runningStatus1);
+  EXPECT_EQ(TASK_RUNNING, runningStatus1->state());
+
+  Future<vector<Offer>> offers2;
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillOnce(FutureArg<1>(&offers2))
+    .WillRepeatedly(Return()); // Ignore subsequent offers.
+
+  Clock::advance(masterFlags.allocation_interval);
+
+  AWAIT_READY(offers2);
+  ASSERT_FALSE(offers2->empty());
+
+  const Offer& offer2 = offers2->at(0);
+
+  // The second task finishes immediately. Its TASK_FINISHED status update is
+  // never acknowledged so that the agent will include the task in its
+  // reregistration message.
+  TaskInfo task2 = createTask(
+      offer2.slave_id(),
+      Resources::parse("cpus:0.1;mem:64").get(),
+      "echo done");
+
+  Future<TaskStatus> startingStatus2;
+  Future<TaskStatus> runningStatus2;
+  Future<TaskStatus> finishedStatus;
+  EXPECT_CALL(sched, statusUpdate(&driver, _))
+    .WillOnce(FutureArg<1>(&startingStatus2))
+    .WillOnce(FutureArg<1>(&runningStatus2))
+    .WillOnce(FutureArg<1>(&finishedStatus))
+    .WillRepeatedly(Return());
+
+  Future<mesos::scheduler::Call> ack1 = FUTURE_CALL(
+      mesos::scheduler::Call(),
+      mesos::scheduler::Call::ACKNOWLEDGE,
+      _,
+      master.get()->pid);
+  Future<mesos::scheduler::Call> ack2 = FUTURE_CALL(
+      mesos::scheduler::Call(),
+      mesos::scheduler::Call::ACKNOWLEDGE,
+      _,
+      master.get()->pid);
+
+  driver.launchTasks(offer2.id(), {task2}, filters);
+
+  AWAIT_READY(startingStatus2);
+  EXPECT_EQ(TASK_STARTING, startingStatus2->state());
+  AWAIT_READY(ack1);
+
+  AWAIT_READY(runningStatus2);
+  EXPECT_EQ(TASK_RUNNING, runningStatus2->state());
+  AWAIT_READY(ack2);
+
+  DROP_CALLS(
+      mesos::scheduler::Call(),
+      mesos::scheduler::Call::ACKNOWLEDGE,
+      _,
+      master.get()->pid);
+
+  AWAIT_READY(finishedStatus);
+  EXPECT_EQ(TASK_FINISHED, finishedStatus->state());
+
+  // Fail over the agent to ensure that the master's task state metrics
+  // remain correct after agent reregistration.
+  slave.get()->terminate();
+  slave->reset();
+
+  Future<ReregisterExecutorMessage> reregisterExecutorMessage =
+    FUTURE_PROTOBUF(ReregisterExecutorMessage(), _, _);
+  Future<ReregisterSlaveMessage> reregisterSlaveMessage =
+    FUTURE_PROTOBUF(ReregisterSlaveMessage(), _, _);
+  Future<SlaveReregisteredMessage> slaveReregisteredMessage =
+    FUTURE_PROTOBUF(SlaveReregisteredMessage(), _, _);
+
+  // Restart the agent with a new containerizer.
+  _containerizer = MesosContainerizer::create(slaveFlags, true, &fetcher);
+  ASSERT_SOME(_containerizer);
+  containerizer.reset(_containerizer.get());
+
+  slave = StartSlave(detector.get(), containerizer.get(), slaveFlags);
+  ASSERT_SOME(slave);
+
+  // Ensure that the executor has reregistered before we advance the clock,
+  // to avoid timing out the executor.
+  AWAIT_READY(reregisterExecutorMessage);
+
+  // Ensure that agent recovery completes.
+  Clock::advance(slaveFlags.executor_reregistration_timeout);
+  Clock::settle();
+
+  // Ensure that the agent reregisters.
+  Clock::advance(slaveFlags.registration_backoff_factor);
+  Clock::settle();
+
+  AWAIT_READY(reregisterSlaveMessage);
+
+  // The agent should provide both of its tasks during reregistration, since one
+  // is still running and the other has an unacknowledged terminal update. We
+  // want to verify that metric values are correct after this occurs.
+  EXPECT_EQ(2, reregisterSlaveMessage->tasks_size());
+
+  AWAIT_READY(slaveReregisteredMessage);
+
+  JSON::Object metrics = Metrics();
+
+  // Verify global master metrics.
+  EXPECT_EQ(1, metrics.values["master/tasks_running"]);
+  EXPECT_EQ(1, metrics.values["master/tasks_finished"]);
+
+  const string prefix = master::getFrameworkMetricPrefix(frameworkInfo);
+
+  // Verify per-framework metrics.
+  EXPECT_EQ(1, metrics.values[prefix + "tasks/task_running"]);
+  EXPECT_EQ(1, metrics.values[prefix + "tasks/task_finished"]);
 
   driver.stop();
   driver.join();
