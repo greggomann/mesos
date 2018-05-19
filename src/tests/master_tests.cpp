@@ -8045,6 +8045,80 @@ TEST_F(MasterTest, IgnoreOldAgentReregistration)
 }
 
 
+// Verifies metrics which track the numbers of offers sent with particular
+// resource types and the quantities of scalar resources offered.
+TEST_F(MasterTest, OfferedResourceMetrics)
+{
+  Clock::pause();
+
+  Try<Owned<cluster::Master>> master = StartMaster();
+  ASSERT_SOME(master);
+
+  Owned<MasterDetector> detector = master.get()->createDetector();
+
+  vector<string> slaveResources =
+    {"cpus:8;mem:0;disk:0", "mem:4096;cpus:0;disk:0", "disk:8192;cpus:8;mem:0"};
+
+  vector<Owned<cluster::Slave>> slaves;
+
+  foreach (const string& resources, slaveResources) {
+    Future<SlaveRegisteredMessage> slaveRegisteredMessage =
+      FUTURE_PROTOBUF(SlaveRegisteredMessage(), _, _);
+
+    mesos::internal::slave::Flags slaveFlags = CreateSlaveFlags();
+    slaveFlags.resources = resources;
+
+    Try<Owned<cluster::Slave>> slave = StartSlave(detector.get(), slaveFlags);
+    ASSERT_SOME(slave);
+
+    slaves.push_back(slave.get());
+
+    // Advance the clock to trigger agent registration.
+    Clock::advance(slaveFlags.registration_backoff_factor);
+
+    AWAIT_READY(slaveRegisteredMessage);
+  }
+
+  FrameworkInfo frameworkInfo = DEFAULT_FRAMEWORK_INFO;
+
+  MockScheduler sched;
+  MesosSchedulerDriver driver(
+      &sched, frameworkInfo, master.get()->pid, DEFAULT_CREDENTIAL);
+
+  Future<FrameworkID> frameworkId;
+  EXPECT_CALL(sched, registered(&driver, _, _))
+    .WillOnce(SaveArg<1>(&frameworkId));
+
+  Future<vector<Offer>> offers;
+  EXPECT_CALL(sched, resourceOffers(&driver, _))
+    .WillOnce(FutureArg<1>(&offers));
+
+  driver.start();
+
+  AWAIT_READY(frameworkId);
+  frameworkInfo.mutable_id()->CopyFrom(frameworkId.get());
+
+  AWAIT_READY(offers);
+  EXPECT_EQ(3u, offers->size());
+
+  JSON::Object metrics = Metrics();
+
+  const string prefix = master::getFrameworkMetricPrefix(frameworkInfo);
+
+  EXPECT_EQ(3, metrics.values[prefix + "offers/sent"]);
+  EXPECT_EQ(2, metrics.values[prefix + "offers/sent/with_cpus"]);
+  EXPECT_EQ(1, metrics.values[prefix + "offers/sent/with_mem"]);
+  EXPECT_EQ(1, metrics.values[prefix + "offers/sent/with_disk"]);
+
+  EXPECT_EQ(16, metrics.values[prefix + "offered_resources/cpus"]);
+  EXPECT_EQ(4096, metrics.values[prefix + "offered_resources/mem"]);
+  EXPECT_EQ(8192, metrics.values[prefix + "offered_resources/disk"]);
+
+  driver.stop();
+  driver.join();
+}
+
+
 class MasterTestPrePostReservationRefinement
   : public MasterTest,
     public WithParamInterface<bool> {
